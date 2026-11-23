@@ -85,6 +85,11 @@ class ViewController: UIViewController, WKNavigationDelegate {
         webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
     }
 
+    /// 重试按钮点击入口（需暴露给 Objective-C 才能作为 UIControl 的 action）
+    @objc private func retryLoad() {
+        load()
+    }
+
     // MARK: - WKNavigationDelegate
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         activityIndicator.stopAnimating()
@@ -107,7 +112,7 @@ class ViewController: UIViewController, WKNavigationDelegate {
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.textAlignment = .center
         button.tintColor = .white
-        button.addTarget(self, action: #selector(load), for: .touchUpInside)
+        button.addTarget(self, action: #selector(retryLoad), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(button)
         NSLayoutConstraint.activate([
