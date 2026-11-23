@@ -1,0 +1,140 @@
+# ============================================================================
+# 云端打包「未签名 IPA」—— WKWebView 壳 App（XcodeGen 现场生成工程）
+# 壳内加载 Folia 在线版 folia-ce.cn，UI 与歌词动画由 Web 应用渲染。
+# 产物为未签名 IPA：用 TrollStore / Sideloadly / AltStore 重签后安装。
+# ============================================================================
+
+name: Build Folia Unsigned IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # 锁定镜像与 Xcode，避免 macos-latest 漂移导致构建突然失败
+  XCODE_PATH: /Applications/Xcode_16.4.app
+  SCHEME: Folia
+  PRODUCT_NAME: Folia
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 环境探测
+        run: |
+          set -euxo pipefail
+          sw_vers
+          uname -m
+          xcode-select -p
+          xcodebuild -version
+
+      - name: 选择 Xcode
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: 安装 XcodeGen 并生成工程
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate
+          ls -d *.xcodeproj
+
+      - name: 探测 scheme
+        id: scheme
+        run: |
+          set -euo pipefail
+          if [ -n "$SCHEME" ]; then
+            echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+            echo "使用手动指定 scheme: $SCHEME"
+            exit 0
+          fi
+          JSON="$(xcodebuild -project Folia.xcodeproj -list -json)"
+          echo "$JSON"
+          SCHEME_FOUND="$(printf '%s' "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); n=d.get('project') or {}; s=n.get('schemes') or []; print(s[0] if s else '')")"
+          if [ -z "$SCHEME_FOUND" ]; then
+            echo "::error::没有探测到 scheme，请在 env.SCHEME 手动指定"
+            exit 1
+          fi
+          echo "scheme=$SCHEME_FOUND" >> "$GITHUB_OUTPUT"
+
+      - name: Archive（关闭代码签名）
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project Folia.xcodeproj \
+            -scheme "${{ steps.scheme.outputs.scheme }}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/build/Folia.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tail -300
+
+      - name: 打包成未签名 IPA
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/build/Folia.xcarchive"
+          APP="$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "::error::archive 里没有找到 .app"
+            exit 1
+          fi
+          echo "App: $APP"
+          mkdir -p "$RUNNER_TEMP/out/Payload"
+          # ditto 保留符号链接与扩展属性；zip -y 保留符号链接
+          ditto "$APP" "$RUNNER_TEMP/out/Payload/$(basename "$APP")"
+          cd "$RUNNER_TEMP/out"
+          zip -qry "${PRODUCT_NAME}-unsigned.ipa" Payload
+          rm -rf Payload
+          ls -lh "${PRODUCT_NAME}-unsigned.ipa"
+
+      - name: 校验产物确实是未签名的
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/out/${PRODUCT_NAME}-unsigned.ipa"
+          unzip -l "$IPA" | head -30
+          if unzip -l "$IPA" | grep -q '_CodeSignature/'; then
+            echo "::error::产物里出现 _CodeSignature/，签名没有被完全关闭"
+            exit 1
+          fi
+          if unzip -l "$IPA" | grep -q 'embedded.mobileprovision'; then
+            echo "::error::产物里出现 embedded.mobileprovision，这不是未签名包"
+            exit 1
+          fi
+          echo "✅ 已确认是未签名 IPA"
+
+      - name: 上传 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: ${{ runner.temp }}/out/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布到 Release（免登录下载链接）
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/out/${PRODUCT_NAME}-unsigned.ipa"
+          TAG="build-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" "$IPA" \
+            --title "Folia 未签名 IPA ${TAG}" \
+            --notes "Folia iOS 壳 App（内嵌 WKWebView 加载 folia-ce.cn）。**未签名 IPA**，需重签后安装：TrollStore 可直接导入，或用 Sideloadly / AltStore + 免费 Apple ID 自签（7 天有效）。" \
+            --latest
+          echo "下载页: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"

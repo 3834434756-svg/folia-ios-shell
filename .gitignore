@@ -1,0 +1,16 @@
+# XcodeGen 生成的工程（由 CI 现场生成，不入库）
+*.xcodeproj/
+*.xcworkspace/
+
+# 构建产物
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+
+# 凭据 —— 绝不入库
+*.p12
+*.mobileprovision
+*.cer
+*.key
+.env

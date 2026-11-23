@@ -1,0 +1,57 @@
+# XcodeGen 工程描述 —— 用 GitHub Actions 云端生成 .xcodeproj 并编译
+# 壳 App 内嵌 WKWebView，加载 Folia 在线版（folia-ce.cn），还原官方 UI 与歌词动画。
+name: Folia
+
+options:
+  bundleIdPrefix: com.folia
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # 云端构建统一关闭签名，产出未签名 IPA（用户自己用巨魔/Sideloadly 重签）
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  Folia:
+    type: application
+    platform: iOS
+    sources:
+      - path: WebShell
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.folia.ios
+        PRODUCT_NAME: Folia
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # 状态栏：以 App 内设置为准
+        UIViewControllerBasedStatusBarAppearance: "YES"
+    info:
+      path: WebShell/Info.plist
+      properties:
+        CFBundleDisplayName: Folia
+        CFBundleName: Folia
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        # 后台音频播放：切后台 / 锁屏后音乐继续播放
+        UIBackgroundModes:
+          - audio
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 允许 HTTP/HTTPS 任意加载（在线音源、图片、歌词来自多个域名）
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoadsInWebContent: true
